@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 import json
+import re
 import matplotlib.pyplot as plt
 import networkx as nx
 from .utils import tavily_search
@@ -43,14 +44,38 @@ class TechLandscape:
         results = tavily_search(query, include_raw_content=True, max_results=3)
         return results
 
+    def _fix_json_array(self, text: str) -> str:
+        """修复和清理 JSON 数组格式"""
+        # 移除代码块标记
+        text = re.sub(r'```json\s*|\s*```', '', text.strip())
+        
+        # 如果是数组格式，确保元素之间有逗号
+        if text.startswith('[') and text.endswith(']'):
+            # 移除现有的逗号和多余的空白
+            items = [item.strip() for item in text[1:-1].split('\n') if item.strip()]
+            # 重新组合成正确的 JSON 数组格式
+            return '[' + ','.join(items) + ']'
+        
+        return text
+
     def _clean_json_response(self, response: str) -> str:
         """清理 LLM 响应中的 JSON"""
         response = response.strip()
-        # 找到第一个 { 和最后一个 }
+        
+        # 检查是否是数组格式
+        if response.startswith('[') and response.endswith(']'):
+            return self._fix_json_array(response)
+            
+        # 对于普通 JSON 对象
         start = response.find('{')
         end = response.rfind('}')
         if start != -1 and end != -1:
-            return response[start:end + 1]
+            json_str = response[start:end + 1]
+            # 修复常见的 JSON 格式问题
+            json_str = re.sub(r',\s*}', '}', json_str)  # 移除最后一个属性后的逗号
+            json_str = re.sub(r',\s*]', ']', json_str)  # 移除数组最后一个元素后的逗号
+            return json_str
+            
         return response
 
     def analyze_tech(self, tech_name: str) -> TechNode:
@@ -156,6 +181,7 @@ class TechLandscape:
         except Exception as e:
             print(f"Error parsing reflection response: {e}")
             print(f"Original response: {result.content}")
+            print(f"Cleaned response: {content}")
             return {
                 "knowledge_gap": "解析反思结果时出错",
                 "follow_up_query": f"{state.research_topic} 最新发展和应用"
@@ -163,19 +189,25 @@ class TechLandscape:
 
     def extract_related_technologies(self, summary: str, tech_name: str) -> List[str]:
         """从总结中提取相关技术"""
-        prompt = f"""基于以下关于{tech_name}的技术总结，请提取5-7个最相关的技术：
+        prompt = f"""基于以下关于{tech_name}的技术总结，列出3-5个最相关的具体技术名称：
 
 {summary}
 
 请确保：
-1. 提取的都是具体的技术名称
-2. 与{tech_name}有直接的关联
-3. 每个技术都有实际应用价值
+1. 只提取具体的技术名称，不要包含描述性文字
+2. 所有技术都与{tech_name}有直接关联
+3. 每个技术都是实际存在且可实现的
 4. 避免过于宽泛的概念
 5. 避免重复或相似的技术
 
-请用JSON数组格式返回技术名称列表。例如：
-["技术1", "技术2", "技术3"]"""
+请直接返回JSON数组格式的技术名称列表，例如：
+["机器学习", "深度学习", "神经网络"]
+
+注意：
+- 保持数组格式的严格性
+- 确保每个技术名称都用引号括起来
+- 使用逗号正确分隔每个技术
+- 不要添加额外的描述或说明"""
 
         result = self.llm.invoke([
             HumanMessage(content=prompt)
@@ -183,6 +215,7 @@ class TechLandscape:
 
         try:
             content = self._clean_json_response(result.content)
+            print(f"Cleaned tech response: {content}")  # Debug output
             techs = json.loads(content)
             if not isinstance(techs, list):
                 raise ValueError("Response is not a list")
