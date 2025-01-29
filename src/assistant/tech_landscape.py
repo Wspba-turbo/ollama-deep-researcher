@@ -46,26 +46,35 @@ class TechLandscape:
 
     def _fix_json_array(self, text: str) -> str:
         """修复和清理 JSON 数组格式"""
+        print("\n开始处理 JSON 数组...")
+        
         # 移除代码块标记和所有多余的空白字符
         text = re.sub(r'```json\s*|\s*```', '', text)
         text = ' '.join(text.split())
+        print(f"移除代码块标记后: {text}")
         
         # 如果不是数组格式，返回原文本
         if not (text.startswith('[') and text.endswith(']')):
+            print("输入不是数组格式")
             return text
         
         # 提取数组内容
         content = text[1:-1].strip()
+        print(f"提取的数组内容: {content}")
         
         # 如果内容为空，返回空数组
         if not content:
+            print("数组内容为空")
             return '[]'
         
         try:
             # 先尝试直接解析
+            print("尝试直接解析 JSON...")
             json.loads(text)
+            print("JSON 解析成功")
             return text
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            print(f"JSON 解析失败: {e}，尝试修复格式...")
             # 如果解析失败，尝试修复格式
             items = []
             for item in re.findall(r'"[^"]*"|\'[^\']*\'|[^,\s]+', content):
@@ -73,7 +82,9 @@ class TechLandscape:
                 if item:
                     items.append(f'"{item}"')
             
-            return '[' + ','.join(items) + ']'
+            fixed_json = '[' + ','.join(items) + ']'
+            print(f"修复后的 JSON: {fixed_json}")
+            return fixed_json
 
     def _clean_json_response(self, response: str) -> str:
         """清理 LLM 响应中的 JSON"""
@@ -97,6 +108,7 @@ class TechLandscape:
 
     def analyze_tech(self, tech_name: str) -> TechNode:
         """分析单个技术节点，使用迭代总结和反思的方式"""
+        print(f"\n开始分析技术: {tech_name}")
         node = TechNode(name=tech_name)
         
         # 创建初始状态
@@ -112,7 +124,9 @@ class TechLandscape:
         )
 
         # 初始查询
+        print(f"执行初始搜索...")
         search_results = self.search_tech_info(tech_name)
+        print(f"获取到 {len(search_results.get('results', []))} 条搜索结果")
         
         # 迭代研究过程
         for i in range(self.research_iterations):
@@ -147,10 +161,12 @@ class TechLandscape:
 
     def summarize_content(self, state: SummaryState) -> str:
         """总结内容"""
+        print("\n开始生成内容总结...")
         configurable = self.config
         most_recent_web_research = state.web_research_results[-1]
         
         if state.running_summary:
+            print("扩展现有总结...")
             human_message_content = (
                 f"请基于以下信息扩展现有总结:\n\n"
                 f"现有总结: {state.running_summary}\n\n"
@@ -158,10 +174,12 @@ class TechLandscape:
                 f"研究主题: {state.research_topic}"
             )
         else:
+            print("生成初始总结...")
             human_message_content = (
                 f"请总结以下关于{state.research_topic}的研究结果:\n\n{most_recent_web_research}"
             )
 
+        print("调用 LLM 生成总结...")
         result = self.llm.invoke([
             SystemMessage(content=summarizer_instructions.format(
                 language=configurable.output_language,
@@ -170,6 +188,7 @@ class TechLandscape:
             )),
             HumanMessage(content=human_message_content)
         ])
+        print("总结生成完成")
 
         return result.content
 
@@ -206,6 +225,8 @@ class TechLandscape:
 
     def extract_related_technologies(self, summary: str, tech_name: str) -> List[str]:
         """从总结中提取相关技术"""
+        print(f"\n开始提取与 {tech_name} 相关的技术...")
+        
         prompt = f"""基于以下关于{tech_name}的技术总结，提取3-5个最相关的具体技术名称。
 
 {summary}
@@ -220,20 +241,24 @@ class TechLandscape:
 4. 使用逗号分隔
 5. 不要添加额外空格或换行"""
 
+        print("调用 LLM 提取相关技术...")
         result = self.llm.invoke([
             HumanMessage(content=prompt)
         ])
+        print(f"LLM 响应完成，开始处理结果...")
 
         try:
             content = self._clean_json_response(result.content)
-            print(f"Cleaned tech response: {content}")  # Debug output
+            print(f"清理后的响应内容: {content}")
             techs = json.loads(content)
             if not isinstance(techs, list):
                 raise ValueError("Response is not a list")
-            return techs[:self.max_related_techs]
+            filtered_techs = techs[:self.max_related_techs]
+            print(f"提取到的相关技术: {filtered_techs}")
+            return filtered_techs
         except Exception as e:
-            print(f"Error extracting related technologies: {e}")
-            print(f"Original response: {result.content}")
+            print(f"处理相关技术时出错: {e}")
+            print(f"原始响应: {result.content}")
             return []
 
     def build_tech_tree(self, root_tech: str, current_depth: int = 0) -> TechNode:
