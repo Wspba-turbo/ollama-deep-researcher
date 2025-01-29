@@ -36,10 +36,22 @@ class TechLandscape:
         from .graph import get_llm
         return get_llm(self.config, temperature=0)
 
-    def search_tech_info(self, query: str) -> Dict:
+    def search_tech_info(self, tech_name: str, query: str = None) -> Dict:
         """搜索技术相关信息"""
+        if query is None:
+            query = f"{tech_name} technology overview latest developments applications"
         results = tavily_search(query, include_raw_content=True, max_results=3)
         return results
+
+    def _clean_json_response(self, response: str) -> str:
+        """清理 LLM 响应中的 JSON"""
+        response = response.strip()
+        # 找到第一个 { 和最后一个 }
+        start = response.find('{')
+        end = response.rfind('}')
+        if start != -1 and end != -1:
+            return response[start:end + 1]
+        return response
 
     def analyze_tech(self, tech_name: str) -> TechNode:
         """分析单个技术节点，使用迭代总结和反思的方式"""
@@ -47,7 +59,7 @@ class TechLandscape:
         
         # 创建初始状态
         state = SummaryState(
-            research_topic=f"{tech_name} technology overview, applications, and latest developments",
+            research_topic=tech_name,
             running_summary="",
             search_query="",
             research_loop_count=0,
@@ -58,8 +70,7 @@ class TechLandscape:
         )
 
         # 初始查询
-        query = f"{tech_name} technology overview latest developments applications"
-        search_results = self.search_tech_info(query)
+        search_results = self.search_tech_info(tech_name)
         
         # 迭代研究过程
         for i in range(self.research_iterations):
@@ -79,11 +90,10 @@ class TechLandscape:
             if i < self.research_iterations - 1:
                 reflection = self.reflect_and_generate_query(state)
                 state.historical_reflections.append(reflection)
-                query = reflection['follow_up_query']
-                search_results = self.search_tech_info(query)
+                search_results = self.search_tech_info(tech_name, reflection['follow_up_query'])
 
         # 提取相关技术
-        related_techs = self.extract_related_technologies(state.running_summary)
+        related_techs = self.extract_related_technologies(state.running_summary, tech_name)
 
         # 更新节点信息
         node.description = state.running_summary
@@ -95,18 +105,19 @@ class TechLandscape:
 
     def summarize_content(self, state: SummaryState) -> str:
         """总结内容"""
-        # 复用 graph.py 中的总结逻辑
         configurable = self.config
         most_recent_web_research = state.web_research_results[-1]
         
         if state.running_summary:
             human_message_content = (
-                f"Extend the existing summary: {state.running_summary}\n\n"
-                f"Include new search results about {state.research_topic}: {most_recent_web_research}"
+                f"请基于以下信息扩展现有总结:\n\n"
+                f"现有总结: {state.running_summary}\n\n"
+                f"新的研究结果: {most_recent_web_research}\n\n"
+                f"研究主题: {state.research_topic}"
             )
         else:
             human_message_content = (
-                f"Generate a summary of these search results about {state.research_topic}: {most_recent_web_research}"
+                f"请总结以下关于{state.research_topic}的研究结果:\n\n{most_recent_web_research}"
             )
 
         result = self.llm.invoke([
@@ -127,34 +138,58 @@ class TechLandscape:
                 research_topic=state.research_topic,
                 language=self.config.output_language
             )),
-            HumanMessage(content=f"Based on this summary: {state.running_summary}")
+            HumanMessage(content=f"""基于这个总结，请分析并找出知识空白，生成新的查询：
+
+{state.running_summary}
+
+请用JSON格式返回，包含两个字段：
+1. knowledge_gap: 发现的知识空白
+2. follow_up_query: 下一步的搜索查询
+
+确保返回的是有效的JSON对象。""")
         ])
 
         try:
-            reflection = json.loads(result.content)
+            content = self._clean_json_response(result.content)
+            reflection = json.loads(content)
             return reflection
-        except:
+        except Exception as e:
+            print(f"Error parsing reflection response: {e}")
+            print(f"Original response: {result.content}")
             return {
-                "knowledge_gap": "Error parsing reflection",
-                "follow_up_query": f"{state.research_topic} latest developments"
+                "knowledge_gap": "解析反思结果时出错",
+                "follow_up_query": f"{state.research_topic} 最新发展和应用"
             }
 
-    def extract_related_technologies(self, summary: str) -> List[str]:
+    def extract_related_technologies(self, summary: str, tech_name: str) -> List[str]:
         """从总结中提取相关技术"""
-        prompt = f"""Based on this technology summary, extract 5-7 most closely related technologies:
+        prompt = f"""基于以下关于{tech_name}的技术总结，请提取5-7个最相关的技术：
 
 {summary}
 
-Return your response as a JSON array of technology names."""
+请确保：
+1. 提取的都是具体的技术名称
+2. 与{tech_name}有直接的关联
+3. 每个技术都有实际应用价值
+4. 避免过于宽泛的概念
+5. 避免重复或相似的技术
+
+请用JSON数组格式返回技术名称列表。例如：
+["技术1", "技术2", "技术3"]"""
 
         result = self.llm.invoke([
             HumanMessage(content=prompt)
         ])
 
         try:
-            techs = json.loads(result.content)
+            content = self._clean_json_response(result.content)
+            techs = json.loads(content)
+            if not isinstance(techs, list):
+                raise ValueError("Response is not a list")
             return techs[:self.max_related_techs]
-        except:
+        except Exception as e:
+            print(f"Error extracting related technologies: {e}")
+            print(f"Original response: {result.content}")
             return []
 
     def build_tech_tree(self, root_tech: str, current_depth: int = 0) -> TechNode:
@@ -162,14 +197,20 @@ Return your response as a JSON array of technology names."""
         if current_depth >= self.max_depth:
             return TechNode(name=root_tech, depth=current_depth)
 
+        print(f"\n{'  ' * current_depth}分析技术: {root_tech}")
+        
         # 分析当前技术
         node, related_techs = self.analyze_tech(root_tech)
         node.depth = current_depth
 
         # 递归处理相关技术
-        for tech in related_techs[:self.max_related_techs]:
-            child_node = self.build_tech_tree(tech, current_depth + 1)
-            node.related_techs.append(child_node)
+        if related_techs:
+            print(f"{'  ' * current_depth}发现相关技术: {', '.join(related_techs)}")
+            for tech in related_techs[:self.max_related_techs]:
+                child_node = self.build_tech_tree(tech, current_depth + 1)
+                node.related_techs.append(child_node)
+        else:
+            print(f"{'  ' * current_depth}未发现相关技术")
 
         return node
 
