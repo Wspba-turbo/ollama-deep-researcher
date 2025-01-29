@@ -1,5 +1,6 @@
 from langsmith import traceable
 from tavily import TavilyClient
+import json
 
 def deduplicate_and_format_sources(search_response, max_tokens_per_source, include_raw_content=True):
     """
@@ -67,6 +68,38 @@ def format_sources(search_results):
         f"* {source['title']} : {source['url']}"
         for source in search_results['results']
     )
+
+def format_research_process(file_path: str) -> str:
+    """分析和格式化研究过程。
+
+    Args:
+        file_path (str): research_process.json 文件的路径
+
+    Returns:
+        str: 格式化后的研究过程
+    """
+    with open(file_path, 'r') as f:
+        data = json.load(f)
+
+    output = []
+    output.append(f"研究主题: {data['research_topic']}\n")
+
+    # 获取总结和反思的最大长度
+    max_iterations = max(len(data['historical_summaries']), len(data['historical_reflections']))
+
+    # 交替添加总结和反思
+    for i in range(max_iterations):
+        if i < len(data['historical_summaries']):
+            output.append(f"第{i+1}次总结:\n{data['historical_summaries'][i]}\n")
+        
+        if i < len(data['historical_reflections']):
+            output.append(f"第{i+1}次反思:\n{data['historical_reflections'][i]['knowledge_gap']}\n")
+            output.append(f"后续查询: {data['historical_reflections'][i]['follow_up_query']}\n")
+
+    # 添加最终总结
+    output.append(f"最终总结:\n{data['final_summary']}")
+
+    return '\n'.join(output)
 
 @traceable
 def tavily_search(query, include_raw_content=True, max_results=3):

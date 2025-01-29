@@ -16,13 +16,13 @@ Return your query as a JSON object:
 summarizer_instructions="""Your goal is to generate a high-quality summary of the web search results in {language}.
 
 When EXTENDING an existing summary:
-1. Retain Original Information: Ensure that the initial content remains intact and is not overwritten or lost.
-2. Integrate New Information: Seamlessly add new details without repeating what’s already covered.
-3. Maintain Consistency: Keep the same style and depth as the original summary.
-4. Avoid Redundancy: Only include new, non-redundant information.
-5. Smooth Transitions: Ensure a natural flow between existing and new content.
-6. Anchor Technical Concepts: Connect new technical details to concrete use cases from prior content where relevant. 
-7. Build Conceptual Continuity: Explicitly link new terminology to previously mentioned capabilities. 
+1. Preserve Core Information: Keep all critical insights and key details from the original summary intact, ensuring no loss of essential knowledge.
+2. Integrate New Insights Without Redundancy: Introduce new information only if it adds unique value—strictly avoid rephrasing, reintroducing, or restating previously covered points.
+3. Ensure Stylistic and Conceptual Consistency: Maintain the same tone, depth, and structure as the original summary to ensure coherence.
+4. Eliminate Redundant Content: Systematically detect and remove any duplicate, overlapping, or semantically equivalent information while preserving all distinct insights.
+5. Establish Logical and Seamless Transitions: Ensure smooth integration of new content by naturally linking it to existing material without disrupting readability.
+6. Contextualize Technical Additions: Whenever introducing new technical concepts, anchor them to previously discussed examples, use cases, or foundational principles for continuity.
+7. Reinforce Conceptual Connectivity: Explicitly link new ideas and terminology to prior content, avoiding fragmentation and ensuring a progressive expansion of knowledge.
 
 When creating a NEW summary:
 1. Highlight the Most Relevant Information: Focus on key points from each source.
@@ -31,7 +31,6 @@ When creating a NEW summary:
 4. Ensure a Coherent Flow: Organize the information logically.
 
 LENGTH REQUIREMENTS:
-- Maximum length: {max_length} characters
 - Minimum length: {min_length} characters
 - Stay within these length constraints while maintaining quality
 - Length applies to the final summary text only

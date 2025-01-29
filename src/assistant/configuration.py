@@ -11,14 +11,14 @@ class Configuration:
     """The configurable fields for the research assistant."""
     max_web_research_loops: int = 3
     llm_provider: str = "gemini"#"gemini"  # 可选值: "ollama", "openai", "anthropic", "gemini"
-    llm_model: str = "gemini-exp-1206"#"gemini-exp-1206"  # 模型名称
+    llm_model: str = "gemini-2.0-flash-exp"#"deepseek-r1:14b"#"gemini-exp-1206"  # 模型名称
     output_language: str = "English"  # 输出语言，可选值: "Chinese", "English"
     summary_max_length: int = 10000  # 摘要最大长度（字符数）
     summary_min_length: int = 5000  # 摘要最小长度（字符数）
     openai_api_key: str = ""  # OpenAI API密钥
     anthropic_api_key: str = ""  # Anthropic API密钥
-    google_api_key: str = "AIzaSyAH_pq8prelABgkDiDgJv6YLaSieI7xCCM"  # Google API密钥
-
+    google_api_key: str = ""#"AIzaSyAH_pq8prelABgkDiDgJv6YLaSieI7xCCM"  # Google API密钥
+    file_path: str = "research_process.json"  # 研究过程文件路径
     @classmethod
     def from_runnable_config(
         cls, config: Optional[RunnableConfig] = None
