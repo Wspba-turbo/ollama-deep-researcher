@@ -46,32 +46,34 @@ class TechLandscape:
 
     def _fix_json_array(self, text: str) -> str:
         """修复和清理 JSON 数组格式"""
-        # 移除代码块标记
-        text = re.sub(r'```json\s*|\s*```', '', text.strip())
+        # 移除代码块标记和所有多余的空白字符
+        text = re.sub(r'```json\s*|\s*```', '', text)
+        text = ' '.join(text.split())
         
-        # 如果是数组格式，确保元素之间有逗号
-        if text.startswith('[') and text.endswith(']'):
-            # 清理内容
-            content = text[1:-1].strip()
+        # 如果不是数组格式，返回原文本
+        if not (text.startswith('[') and text.endswith(']')):
+            return text
+        
+        # 提取数组内容
+        content = text[1:-1].strip()
+        
+        # 如果内容为空，返回空数组
+        if not content:
+            return '[]'
+        
+        try:
+            # 先尝试直接解析
+            json.loads(text)
+            return text
+        except json.JSONDecodeError:
+            # 如果解析失败，尝试修复格式
             items = []
+            for item in re.findall(r'"[^"]*"|\'[^\']*\'|[^,\s]+', content):
+                item = item.strip('\'" ')
+                if item:
+                    items.append(f'"{item}"')
             
-            # 分行处理每个元素
-            for line in content.split('\n'):
-                line = line.strip()
-                if line and not line.startswith('[') and not line.endswith(']'):
-                    # 如果没有引号，添加引号
-                    if not (line.startswith('"') and line.endswith('"')):
-                        if line.startswith("'") and line.endswith("'"):
-                            # 将单引号替换为双引号
-                            line = f'"{line[1:-1]}"'
-                        else:
-                            line = f'"{line}"'
-                    items.append(line)
-            
-            # 重新组合成正确的 JSON 数组格式
-            return '[' + ','.join([item for item in items if item]) + ']'
-        
-        return text
+            return '[' + ','.join(items) + ']'
 
     def _clean_json_response(self, response: str) -> str:
         """清理 LLM 响应中的 JSON"""
@@ -204,25 +206,19 @@ class TechLandscape:
 
     def extract_related_technologies(self, summary: str, tech_name: str) -> List[str]:
         """从总结中提取相关技术"""
-        prompt = f"""基于以下关于{tech_name}的技术总结，列出3-5个最相关的具体技术名称：
+        prompt = f"""基于以下关于{tech_name}的技术总结，提取3-5个最相关的具体技术名称。
 
 {summary}
 
-请确保：
-1. 只提取具体的技术名称，不要包含描述性文字
-2. 所有技术都与{tech_name}有直接关联
-3. 每个技术都是实际存在且可实现的
-4. 避免过于宽泛的概念
-5. 避免重复或相似的技术
+严格按照以下格式返回（只需要返回数组，不要添加任何其他内容）：
+["技术1","技术2","技术3"]
 
-请直接返回JSON数组格式的技术名称列表，例如：
-["机器学习", "深度学习", "神经网络"]
-
-注意：
-- 保持数组格式的严格性
-- 确保每个技术名称都用引号括起来
-- 使用逗号正确分隔每个技术
-- 不要添加额外的描述或说明"""
+要求：
+1. 提取具体的技术名称，例如"深度学习"而不是"AI技术"
+2. 确保与{tech_name}直接相关
+3. 使用引号包裹每个技术名称
+4. 使用逗号分隔
+5. 不要添加额外空格或换行"""
 
         result = self.llm.invoke([
             HumanMessage(content=prompt)
