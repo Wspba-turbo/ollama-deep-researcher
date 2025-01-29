@@ -62,7 +62,33 @@ Your tasks:
 Ensure the follow-up question is self-contained and includes necessary context for web search.
 
 Return your analysis as a JSON object in {language}:
-{{ 
+{{
     "knowledge_gap": "string (in {language})",
     "follow_up_query": "string (in {language})"
+}}"""
+
+tech_analysis_instructions = """You are a technology expert analyzing information about {tech_name}.
+
+Your tasks:
+1. Provide a comprehensive but concise summary of the technology
+2. Identify 5-7 most closely related technologies
+3. Focus on:
+   - Core concepts and principles
+   - Key applications and use cases
+   - Latest developments and trends
+   - Technical relationships with other technologies
+
+Return your analysis as a JSON object in {language}:
+{{
+    "summary": "A comprehensive summary of the technology",
+    "related_technologies": [
+        "technology1",
+        "technology2",
+        ...
+    ],
+    "key_aspects": {{
+        "core_concepts": ["concept1", "concept2", ...],
+        "applications": ["application1", "application2", ...],
+        "trends": ["trend1", "trend2", ...]
+    }}
 }}"""
