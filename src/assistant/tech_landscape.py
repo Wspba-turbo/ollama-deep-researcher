@@ -70,17 +70,23 @@ class TechLandscape:
         try:
             # 修复引号和逗号
             print("开始修复 JSON 格式...")
-            content = re.sub(r'"\s*"', '","', content)  # 在连续引号之间添加逗号
-            if not content.startswith('"'):
-                content = '"' + content
-            if not content.endswith('"'):
-                content = content + '"'
-            fixed_json = '[' + content + ']'
+            
+            # 提取所有被引号包围的项
+            items = re.findall(r'"([^"]*)"', content)
+            print(f"提取到的技术列表: {items}")
+            
+            if not items:
+                # 如果没有找到引号包围的项，尝试其他分割方法
+                items = [x.strip() for x in content.split() if x.strip()]
+            
+            # 确保每个项都正确使用引号包围并用逗号分隔
+            fixed_items = [f'"{item}"' for item in items if item]
+            fixed_json = '[' + ','.join(fixed_items) + ']'
             
             # 验证修复后的 JSON
-            print(f"修复后尝试解析: {fixed_json}")
-            json.loads(fixed_json)  # 验证是否为有效的 JSON
-            print("JSON 格式验证成功")
+            print(f"修复后的 JSON: {fixed_json}")
+            parsed = json.loads(fixed_json)  # 验证是否为有效的 JSON
+            print(f"JSON 解析结果: {parsed}")
             return fixed_json
         except json.JSONDecodeError as e:
             print(f"JSON 修复后仍然无效: {e}")
