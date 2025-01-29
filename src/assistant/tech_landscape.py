@@ -51,10 +51,25 @@ class TechLandscape:
         
         # 如果是数组格式，确保元素之间有逗号
         if text.startswith('[') and text.endswith(']'):
-            # 移除现有的逗号和多余的空白
-            items = [item.strip() for item in text[1:-1].split('\n') if item.strip()]
+            # 清理内容
+            content = text[1:-1].strip()
+            items = []
+            
+            # 分行处理每个元素
+            for line in content.split('\n'):
+                line = line.strip()
+                if line and not line.startswith('[') and not line.endswith(']'):
+                    # 如果没有引号，添加引号
+                    if not (line.startswith('"') and line.endswith('"')):
+                        if line.startswith("'") and line.endswith("'"):
+                            # 将单引号替换为双引号
+                            line = f'"{line[1:-1]}"'
+                        else:
+                            line = f'"{line}"'
+                    items.append(line)
+            
             # 重新组合成正确的 JSON 数组格式
-            return '[' + ','.join(items) + ']'
+            return '[' + ','.join([item for item in items if item]) + ']'
         
         return text
 
