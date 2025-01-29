@@ -68,23 +68,41 @@ class TechLandscape:
             return '[]'
         
         try:
-            # 先尝试直接解析
-            print("尝试直接解析 JSON...")
-            json.loads(text)
-            print("JSON 解析成功")
-            return text
-        except json.JSONDecodeError as e:
-            print(f"JSON 解析失败: {e}，尝试修复格式...")
-            # 如果解析失败，尝试修复格式
-            items = []
-            for item in re.findall(r'"[^"]*"|\'[^\']*\'|[^,\s]+', content):
-                item = item.strip('\'" ')
-                if item:
-                    items.append(f'"{item}"')
+            # 修复引号和逗号
+            print("开始修复 JSON 格式...")
+            content = re.sub(r'"\s*"', '","', content)  # 在连续引号之间添加逗号
+            if not content.startswith('"'):
+                content = '"' + content
+            if not content.endswith('"'):
+                content = content + '"'
+            fixed_json = '[' + content + ']'
             
-            fixed_json = '[' + ','.join(items) + ']'
-            print(f"修复后的 JSON: {fixed_json}")
+            # 验证修复后的 JSON
+            print(f"修复后尝试解析: {fixed_json}")
+            json.loads(fixed_json)  # 验证是否为有效的 JSON
+            print("JSON 格式验证成功")
             return fixed_json
+        except json.JSONDecodeError as e:
+            print(f"JSON 修复后仍然无效: {e}")
+            print("尝试使用备用方法修复...")
+            
+            # 备用修复方法
+            try:
+                items = []
+                for item in re.findall(r'"[^"]*"', content):
+                    item = item.strip()
+                    if item:
+                        items.append(item)
+                if not items:  # 如果没有找到带引号的项，尝试分割并添加引号
+                    items = [f'"{item.strip()}"' for item in re.split(r'[,\s]+', content) if item.strip()]
+                
+                fixed_json = '[' + ','.join(items) + ']'
+                print(f"备用修复结果: {fixed_json}")
+                json.loads(fixed_json)  # 验证修复结果
+                return fixed_json
+            except Exception as e2:
+                print(f"备用修复也失败了: {e2}")
+                return '[]'  # 如果所有修复尝试都失败，返回空数组
 
     def _clean_json_response(self, response: str) -> str:
         """清理 LLM 响应中的 JSON"""
