@@ -419,6 +419,10 @@ Requirements:
             },
             "minVelocity": 0.75,
             "solver": "forceAtlas2Based"
+          },
+          "configure": {
+            "enabled": true,
+            "filter": "physics"
           }
         }
         """)
@@ -426,7 +430,7 @@ Requirements:
         # 生成HTML文件
         base_name = root_node.name.lower().replace(' ', '_')
         html_path = f"{base_name}_landscape.html"
-        net.show(html_path, local=True)
+        net.show(html_path, notebook=False)
         self.logger.info(f"已生成交互式可视化文件: {html_path}")
 
         # 同时生成静态PNG图像作为备份
