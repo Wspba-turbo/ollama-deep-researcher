@@ -60,13 +60,13 @@ class TechLandscape:
         from .graph import get_llm
         return get_llm(self.config, temperature=0)
 
-    def search_tech_info(self, tech_name: str, query: str = None, depth: int = 0) -> Dict:
+    def search_tech_info(self, tech_name: str, query: str = None, depth: int = 0, max_results: int = 3) -> Dict:
         """搜索技术相关信息，根据深度动态调整搜索结果数量"""
         if query is None:
             query = f"{tech_name} technology core concepts and applications"
 
         # 动态调整搜索结果数量：层级越深，结果越少
-        max_results = max(3 - depth, 1)
+        max_results = max(max_results - depth, 1)
         self.logger.info(f"搜索技术 {tech_name} (深度: {depth}, 结果数: {max_results})")
 
         try:
