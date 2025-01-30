@@ -399,33 +399,35 @@ Ensure the response is valid JSON.""")
     def extract_related_technologies(self, summary: str, tech_name: str) -> List[Dict]:
         """提取相关技术并生成关联强度"""
         prompt = f"""
-        Based on the summary below about {tech_name}, extract 3-5 **specific technical implementations** (not broad fields) that are DIRECTLY integrated or used with {tech_name} and give them relevance scores (0.0-1.0).
+        Based on the summary about {tech_name}, identify the MOST SPECIFIC and TECHNICALLY PRECISE components/frameworks that are essential to its implementation.
 
-        **Requirements**:  
-1. Extract **specific technical frameworks/tools** (e.g., "LLM" instead of "machine learning", "RAG" instead of "NLP").  
-2. Exclude generic domains (e.g., avoid "deep learning", use "Transformer architecture").  
-3. Prioritize technologies mentioned in the summary or critically relevant to {tech_name}'s implementation.  
+        CRITICAL REQUIREMENTS:
+        1. MUST EXTRACT SPECIFIC TOOLS/FRAMEWORKS:
+           ✅ "Large Language Models (LLM)", "GPT-4", "LangChain"
+           ❌ "machine learning", "AI", "deep learning"
+        
+        2. FOCUS ON CORE TECHNICAL COMPONENTS:
+           ✅ "Retrieval-Augmented Generation (RAG)", "Vector Database", "RLHF"
+           ❌ "optimization", "cloud computing", "algorithms"
 
-**Example for "AI Agent"**:  
-["Large Language Models (LLM)", "Retrieval-Augmented Generation (RAG)", "LangChain", "Reinforcement Learning from Human Feedback (RLHF)", "AutoGPT"]  
+        3. PRIORITIZE MODERN, SPECIFIC IMPLEMENTATIONS:
+           ✅ "Transformer architecture", "Attention mechanism"
+           ❌ "neural networks", "NLP", "computer vision"
 
-        Relevance score criteria:
-        - 1.0: Directly integrated (e.g., LLM for AI Agent)
-        - 0.6-0.9: Indirect but critical (e.g., PyTorch for deep learning)
-        - <0.6: General domain (e.g., "cloud computing")
+        For {tech_name}, identify exactly 3 of its most critical technical components, ranked by integration level:
+        - Directly integrated (score 0.9-1.0): Core frameworks/models (e.g., LLM for AI Agent)
+        - Closely coupled (score 0.8-0.9): Essential components (e.g., RAG for AI Agent)
+        - Supporting tools (score 0.7-0.8): Key implementation tools (e.g., LangChain)
 
-        Example response for "AI Agent":
-        [
-            {{"name": "Large Language Models (LLM)", "score": 0.95}},
-            {{"name": "Retrieval-Augmented Generation (RAG)", "score": 0.9}},
-            {{"name": "LangChain", "score": 0.85}}
-        ]
-
-        Summary:
+        Summary to analyze:
         {summary}
 
-        Respond STRICTLY in JSON format:
-        [{{"name": "Technology", "score": float}}]
+        Respond STRICTLY in this JSON format:
+        [
+            {{"name": "Most Critical Component", "score": float}},
+            {{"name": "Second Critical Component", "score": float}},
+            {{"name": "Third Critical Component", "score": float}}
+        ]
         """
 
         result = self.llm.invoke([HumanMessage(content=prompt)])
@@ -440,17 +442,51 @@ Ensure the response is valid JSON.""")
                 content = content[:-3]
             content = content.strip()
             
+            # 技术黑名单 - 过于宽泛的术语
+            blacklist = {
+                "machine learning", "deep learning", "artificial intelligence", "AI",
+                "NLP", "neural networks", "computer vision", "cloud computing",
+                "algorithms", "optimization", "programming", "software",
+                "data science", "automation", "computing"
+            }
+
             techs = json.loads(content)
-            # 验证响应格式
             if not isinstance(techs, list):
                 raise ValueError("Response is not a list")
-                
-            # 过滤和验证
+            
+            # 过滤和验证技术
             filtered_techs = []
             for tech in techs:
-                if isinstance(tech, dict) and "name" in tech and "score" in tech:
-                    if isinstance(tech["score"], (int, float)) and tech["score"] >= 0.6:
-                        filtered_techs.append(tech)
+                if not (isinstance(tech, dict) and "name" in tech and "score" in tech):
+                    continue
+                    
+                name = tech["name"].strip()
+                score = tech["score"]
+                
+                # 验证分数
+                if not isinstance(score, (int, float)) or score < 0.7:
+                    continue
+                
+                # 检查是否在黑名单中（忽略大小写）
+                if any(black_term.lower() in name.lower() for black_term in blacklist):
+                    continue
+                
+                # 验证名称长度和格式
+                if len(name) < 3 or len(name) > 100:
+                    continue
+                
+                filtered_techs.append({
+                    "name": name,
+                    "score": float(score)  # 确保分数是浮点数
+                })
+            
+            # 确保至少有一个有效的相关技术
+            if not filtered_techs:
+                self.logger.warning(f"没有找到有效的相关技术，使用默认技术")
+                filtered_techs = [{
+                    "name": "Related Technology",
+                    "score": 0.7
+                }]
             
             return filtered_techs[:self.max_related_techs]
         except Exception as e:
@@ -459,28 +495,102 @@ Ensure the response is valid JSON.""")
             return []
 
     def build_tech_tree(self, root_tech: str, current_depth: int = 0) -> TechNode:
-        """递归构建技术树（添加循环检测）"""
-        # 检查深度限制和循环
-        if current_depth >= self.max_depth or root_tech in self.seen_techs:
-            self.logger.info(f"{'  ' * current_depth}停止分析 {root_tech}: " +
-                         ("达到最大深度" if current_depth >= self.max_depth else "检测到循环"))
-            return TechNode(name=root_tech, depth=current_depth)
+        """递归构建技术树，包含错误处理和部分结果保存机制"""
+        node = None
+        try:
+            # 检查深度限制和循环
+            if current_depth >= self.max_depth or root_tech in self.seen_techs:
+                self.logger.info(f"{'  ' * current_depth}停止分析 {root_tech}: " +
+                            ("达到最大深度" if current_depth >= self.max_depth else "检测到循环"))
+                node = TechNode(name=root_tech, depth=current_depth)
+                node.description = f"{root_tech} - 分析已达到深度限制或检测到循环"
+                return node
 
-        self.seen_techs.add(root_tech)  # 标记为已处理
-        self.logger.info(f"\n{'  ' * current_depth}分析技术: {root_tech}")
+            self.seen_techs.add(root_tech)  # 标记为已处理
+            self.logger.info(f"\n{'  ' * current_depth}分析技术: {root_tech}")
 
-        # 分析当前技术
-        node, related_techs = self.analyze_tech(root_tech, current_depth)
-        node.depth = current_depth
+            # 分析当前技术
+            try:
+                node, related_techs = self.analyze_tech(root_tech, current_depth)
+                node.depth = current_depth
 
-        # 递归处理相关技术（携带relation_strength）
-        for tech_data in related_techs:
-            tech_name = tech_data["name"]
-            child_node = self.build_tech_tree(tech_name, current_depth + 1)
-            child_node.relation_strength = tech_data["score"]  # 设置关联强度
-            node.related_techs.append(child_node)
+                # 如果当前节点缺少描述，使用默认描述
+                if not node.description:
+                    node.description = f"A technical component essential to {root_tech}"
+
+                # 递归处理相关技术
+                completed_children = []
+                for tech_data in related_techs:
+                    try:
+                        tech_name = tech_data["name"]
+                        child_node = self.build_tech_tree(tech_name, current_depth + 1)
+                        child_node.relation_strength = float(tech_data.get("score", 0.7))
+                        
+                        # 尝试为空描述的子节点重新获取描述
+                        if not child_node.description:
+                            try:
+                                temp_node, _ = self.analyze_tech(tech_name, current_depth + 1)
+                                child_node.description = temp_node.description or f"Related technology to {root_tech}"
+                            except Exception as e:
+                                self.logger.error(f"重新分析子节点 {tech_name} 失败: {str(e)}")
+                                child_node.description = f"A component of {root_tech}"
+                        
+                        completed_children.append(child_node)
+                    except Exception as e:
+                        self.logger.error(f"处理子技术 {tech_name} 时出错: {str(e)}")
+                        continue
+
+                node.related_techs = completed_children
+
+            except Exception as e:
+                self.logger.error(f"分析技术 {root_tech} 时出错: {str(e)}")
+                if "429" in str(e) or "Resource has been exhausted" in str(e):
+                    self._save_partial_results(root_tech, current_depth)
+                raise
+
+        except Exception as e:
+            self.logger.error(f"构建技术树时出错: {str(e)}")
+            # 创建基本节点作为fallback
+            node = TechNode(name=root_tech, depth=current_depth)
+            node.description = f"Error occurred while analyzing {root_tech}"
+
+        finally:
+            # 保存当前进度
+            if node and node.description:
+                self._save_partial_results(root_tech, current_depth, node)
 
         return node
+
+    def _save_partial_results(self, tech_name: str, depth: int, node: Optional[TechNode] = None):
+        """保存部分完成的分析结果"""
+        try:
+            partial_results = {
+                "name": tech_name,
+                "depth": depth,
+                "timestamp": self._get_timestamp(),
+                "completed_analysis": list(self.seen_techs)
+            }
+            
+            if node:
+                partial_results.update({
+                    "description": node.description,
+                    "relation_strength": node.relation_strength,
+                    "related_techs": [{"name": t.name, "relation_strength": t.relation_strength}
+                                    for t in node.related_techs]
+                })
+            
+            filename = f"partial_results_{tech_name.lower().replace(' ', '_')}.json"
+            with open(filename, 'w', encoding='utf-8') as f:
+                json.dump(partial_results, f, indent=2, ensure_ascii=False)
+            
+            self.logger.info(f"已保存部分分析结果到: {filename}")
+        except Exception as e:
+            self.logger.error(f"保存部分结果失败: {str(e)}")
+
+    def _get_timestamp(self) -> str:
+        """获取当前时间戳"""
+        from datetime import datetime
+        return datetime.now().isoformat()
 
     def to_dict(self, node: TechNode) -> Dict:
         """将技术树转换为字典格式"""
