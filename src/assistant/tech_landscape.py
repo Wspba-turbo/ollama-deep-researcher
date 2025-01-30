@@ -36,6 +36,13 @@ class TechLandscape:
         self.llm = self._get_llm()
         self.seen_techs = set()  # 添加循环检测
 
+        # 初始化颜色映射
+        self.color_map = {
+            "strong": "#2ecc71",  # 强关联-绿色
+            "medium": "#f1c40f",  # 中关联-黄色
+            "weak": "#e74c3c"     # 弱关联-红色
+        }
+
         # 配置日志记录
         import logging
         logging.basicConfig(
@@ -167,6 +174,15 @@ class TechLandscape:
             return json_str
 
         return response
+
+    def _get_color_by_strength(self, strength: float) -> str:
+        """根据关联强度生成渐变色（红→黄→绿）"""
+        if strength >= 0.9:
+            return self.color_map["strong"]  # 强关联-绿色
+        elif strength >= 0.7:
+            return self.color_map["medium"]  # 中关联-黄色
+        else:
+            return self.color_map["weak"]    # 弱关联-红色
 
     def analyze_tech(self, tech_name: str, current_depth: int) -> TechNode:
         """分析单个技术节点，使用迭代总结和反思的方式"""
@@ -328,7 +344,7 @@ Ensure the response is valid JSON.""")
     def extract_related_technologies(self, summary: str, tech_name: str) -> List[Dict]:
         """提取相关技术并生成关联强度"""
         prompt = f"""
-        Based on the summary of {tech_name}, extract 3-5 specific technologies and their relevance scores (0.0-1.0).
+        Based on the summary of {tech_name}, extract EXACTLY 3 specific technologies and their relevance scores (0.0-1.0).
         Relevance score criteria:
         - 1.0: Directly integrated (e.g., LLM for AI Agent)
         - 0.6-0.9: Indirect but critical (e.g., PyTorch for deep learning)
@@ -350,12 +366,32 @@ Ensure the response is valid JSON.""")
 
         result = self.llm.invoke([HumanMessage(content=prompt)])
         try:
-            techs = json.loads(self._clean_json_response(result.content))
-            # 过滤低关联技术 (score < 0.6)
-            filtered_techs = [t for t in techs if t["score"] >= 0.6]
+            content = result.content.strip()
+            # 清理JSON格式
+            if content.startswith('```json'):
+                content = content[7:]
+            if content.startswith('```'):
+                content = content[3:]
+            if content.endswith('```'):
+                content = content[:-3]
+            content = content.strip()
+            
+            techs = json.loads(content)
+            # 验证响应格式
+            if not isinstance(techs, list):
+                raise ValueError("Response is not a list")
+                
+            # 过滤和验证
+            filtered_techs = []
+            for tech in techs:
+                if isinstance(tech, dict) and "name" in tech and "score" in tech:
+                    if isinstance(tech["score"], (int, float)) and tech["score"] >= 0.6:
+                        filtered_techs.append(tech)
+            
             return filtered_techs[:self.max_related_techs]
         except Exception as e:
             self.logger.error(f"Error parsing related technologies: {e}")
+            self.logger.error(f"Original response: {result.content}")
             return []
 
     def build_tech_tree(self, root_tech: str, current_depth: int = 0) -> TechNode:
@@ -412,12 +448,25 @@ Ensure the response is valid JSON.""")
             color = self._get_color_by_strength(node.relation_strength)
             size = 20 + 15 * node.relation_strength  # 强度越高，节点越大
 
+            # 创建悬停提示信息
+            hover_info = f"""
+            <div style='background-color: #f8f9fa; padding: 10px; border-radius: 5px; max-width: 400px;'>
+                <h3 style='color: #2c3e50; margin: 0 0 10px 0;'>{node.name}</h3>
+                <p style='color: #34495e; margin: 5px 0;'><b>关联强度:</b> {node.relation_strength:.2f}</p>
+                <p style='color: #34495e; margin: 5px 0; line-height: 1.4;'>{node.description}</p>
+            </div>
+            """
+
+            # 添加节点
             net.add_node(
                 node.name,
                 label=node.name,
                 color=color,
                 size=size,
-                title=f"Strength: {node.relation_strength:.2f}\n{node.description[:200]}..."
+                title=hover_info,
+                borderWidth=2,
+                font={'size': 14, 'face': 'Helvetica'},
+                shape='dot'
             )
 
             # 添加边并设置权重
@@ -427,46 +476,61 @@ Ensure the response is valid JSON.""")
             for child in node.related_techs:
                 add_nodes_edges(child, node.name)
 
+        # 添加所有节点和边
         add_nodes_edges(root_node)
-        net.show(f"{root_node.name}_landscape.html")
 
-        # 设置物理布局参数
-        net.set_options("""
-        {
-          "physics": {
-            "forceAtlas2Based": {
-              "gravitationalConstant": -100,
-              "springLength": 200,
-              "avoidOverlap": 0.5
-            },
-            "minVelocity": 0.75,
-            "solver": "forceAtlas2Based"
-          },
-          "configure": {
-            "enabled": true,
-            "filter": "physics"
-          }
-        }
-        """)
-
-        # 颜色映射函数
-        def _get_color_by_strength(self, strength: float) -> str:
-            """根据关联强度生成渐变色（红→黄→绿）"""
-            if strength >= 0.9:
-                return "#2ecc71"  # 强关联-绿色
-            elif strength >= 0.7:
-                return "#f1c40f"  # 中关联-黄色
-            else:
-                return "#e74c3c"  # 弱关联-红色
-
-        # 生成HTML文件
-        base_name = root_node.name.lower().replace(' ', '_')
-        html_path = f"{base_name}_landscape.html"
-        net.show(html_path, notebook=False)
-        self.logger.info(f"已生成交互式可视化文件: {html_path}")
-
-        # 同时生成静态PNG图像作为备份
-        self._generate_static_image(root_node)
+        # 设置布局和样式选项
+        try:
+            options = {
+                "physics": {
+                    "forceAtlas2Based": {
+                        "gravitationalConstant": -1000,
+                        "centralGravity": 0.01,
+                        "springLength": 200,
+                        "springConstant": 0.08,
+                        "damping": 0.4,
+                        "avoidOverlap": 0.5
+                    },
+                    "minVelocity": 0.75,
+                    "solver": "forceAtlas2Based"
+                },
+                "nodes": {
+                    "shape": "dot",
+                    "scaling": {
+                        "min": 20,
+                        "max": 35
+                    },
+                    "font": {
+                        "size": 14,
+                        "face": "Helvetica"
+                    }
+                },
+                "edges": {
+                    "color": {"color": "#95a5a6"},
+                    "smooth": {"type": "continuous"},
+                    "width": 2
+                },
+                "interaction": {
+                    "hover": True,
+                    "hideEdgesOnDrag": True,
+                    "tooltipDelay": 200
+                }
+            }
+            
+            # 保存HTML文件
+            base_name = root_node.name.lower().replace(' ', '_')
+            html_path = f"{base_name}_landscape.html"
+            
+            net.set_options(json.dumps(options))
+            net.write_html(html_path)
+            self.logger.info(f"已生成交互式可视化文件: {html_path}")
+            
+            # 同时生成静态PNG图像作为备份
+            self._generate_static_image(root_node)
+            
+        except Exception as e:
+            self.logger.error(f"生成可视化文件失败: {e}")
+            raise
 
     def generate_landscape(self, root_tech: str, output_file: str) -> TechNode:
         """生成技术全景图"""
