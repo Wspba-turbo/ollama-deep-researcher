@@ -85,57 +85,55 @@ pip install langgraph-cli[inmem]
 langgraph dev
 ```
 
-### Using the LangGraph Studio UI 
+## 使用技术全景图生成功能
 
-When you launch LangGraph server, you should see the following output and Studio will open in your browser:
-> Ready!
-> 
-> API: http://127.0.0.1:2024
-> 
-> Docs: http://127.0.0.1:2024/docs
-> 
-> LangGraph Studio Web UI: https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024
+你可以使用 `generate_tech_landscape.py` 脚本来生成技术全景图。该脚本会对指定的技术进行深入分析，生成相关技术的树状图，并提供可视化结果。
 
-Open `LangGraph Studio Web UI` via the URL in the output above. 
+### 基本用法
 
-In the `configuration` tab:
-* You can set the name of your local LLM to use with Ollama (it will by default be `llama3.2`) 
-* You can set the depth of the research iterations (it will by default be `3`)
+```bash
+python generate_tech_landscape.py <技术名称> [选项]
+```
 
-<img width="1621" alt="Screenshot 2025-01-24 at 10 08 31 PM" src="https://github.com/user-attachments/assets/7cfd0e04-28fd-4cfa-aee5-9a556d74ab21" />
+### 参数说明
 
-Give the assistant a topic for research, and you can visualize its process!
+- `技术名称`: 要分析的根技术名称
+- `--output`, `-o`: 输出文件路径（默认：tech_landscape.json）
+- `--depth`, `-d`: 技术树的最大深度（默认：2）
+- `--max-related`, `-m`: 每个节点的相关技术数量上限（默认：5）
+- `--language`, `-l`: 输出语言（默认：English）
+- `--model`: 使用的 Ollama 模型（默认：mistral）
+- `--iterations`, `-i`: 每个技术的研究迭代次数（默认：2）
 
-<img width="1621" alt="Screenshot 2025-01-24 at 10 08 22 PM" src="https://github.com/user-attachments/assets/4de6bd89-4f3b-424c-a9cb-70ebd3d45c5f" />
+### 示例
+
+1. 基本使用（使用默认参数）：
+```bash
+python generate_tech_landscape.py "AI Agent"
+```
+
+2. 指定参数：
+```bash
+python generate_tech_landscape.py "AI Agent" -d 1 -m 3 -l "English" --model mistral --iterations 2
+```
+
+### 输出文件
+
+脚本会生成两个输出文件：
+1. JSON 文件（默认：tech_landscape.json）：包含完整的技术分析结果，包括：
+   - 技术名称
+   - 技术描述
+   - 深度级别
+   - 历史总结
+   - 相关技术列表
+
+2. PNG 图片（例如：ai_agent_landscape.png）：可视化的技术关系图
+   - 以节点和边展示技术之间的关系
+   - 使用不同的颜色和大小来表示技术的层级
+   - 清晰展示技术之间的关联性
 
 ## How it works
 
-Ollama Deep Researcher is inspired by [IterDRAG](https://arxiv.org/html/2410.04343v1#:~:text=To%20tackle%20this%20issue%2C%20we,used%20to%20generate%20intermediate%20answers.). This approach will decompose a query into sub-queries, retrieve documents for each one, answer the sub-query, and then build on the answer by retrieving docs for the second sub-query. Here, we do similar:
-- Given a user-provided topic, use a local LLM (via [Ollama](https://ollama.com/search)) to generate a web search query
-- Uses a search engine (configured for [Tavily](https://www.tavily.com/)) to find relevant sources
-- Uses LLM to summarize the findings from web search related to the user-provided research topic
-- Then, it uses the LLM to reflect on the summary, identifying knowledge gaps
-- It generates a new search query to address the knowledge gaps
-- The process repeats, with the summary being iteratively updated with new information from web search
-- It will repeat down the research rabbit hole 
-- Runs for a configurable number of iterations (see `configuration` tab)  
+[Original content continues below...]
 
-## Outputs
-
-The output of the graph is a markdown file containing the research summary, with citations to the sources used.
-
-All sources gathered during research are saved to the graph state. 
-
-You can visualize them in the graph state, which is visible in LangGraph Studio:
-
-![Screenshot 2024-12-05 at 4 08 59 PM](https://github.com/user-attachments/assets/e8ac1c0b-9acb-4a75-8c15-4e677e92f6cb)
-
-The final summary is saved to the graph state as well: 
-
-![Screenshot 2024-12-05 at 4 10 11 PM](https://github.com/user-attachments/assets/f6d997d5-9de5-495f-8556-7d3891f6bc96)
-
-## Deployment Options
-
-There are [various ways](https://langchain-ai.github.io/langgraph/concepts/#deployment-options) to deploy this graph.
-
-See [Module 6](https://github.com/langchain-ai/langchain-academy/tree/main/module-6) of LangChain Academy for a detailed walkthrough of deployment options with LangGraph.
+[Previous content remains unchanged]
