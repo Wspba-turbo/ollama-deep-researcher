@@ -184,20 +184,75 @@ class TechLandscape:
         else:
             return self.color_map["weak"]    # 弱关联-红色
 
-    def analyze_tech(self, tech_name: str, current_depth: int) -> TechNode:
+    def analyze_tech(self, tech_name: str, current_depth: int) -> tuple[TechNode, List[Dict]]:
         """分析单个技术节点，使用迭代总结和反思的方式"""
         self.logger.info(f"\n开始分析技术: {tech_name} (深度: {current_depth})")
         node = TechNode(name=tech_name)
-        state = SummaryState(
-            research_topic=tech_name,
-            running_summary="",
-            search_query="",
-            research_loop_count=0,
-            sources_gathered=[],
-            web_research_results=[],
-            historical_summaries=[],
-            historical_reflections=[]
-        )
+        related_techs = []
+
+        try:
+            state = SummaryState(
+                research_topic=tech_name,
+                running_summary="",
+                search_query="",
+                research_loop_count=0,
+                sources_gathered=[],
+                web_research_results=[],
+                historical_summaries=[],
+                historical_reflections=[]
+            )
+
+            # 初始查询
+            self.logger.info("执行初始搜索...")
+            search_results = self.search_tech_info(tech_name, depth=current_depth)
+            if not search_results or not search_results.get('results'):
+                self.logger.warning(f"无法获取 {tech_name} 的搜索结果，使用基本描述")
+                node.description = f"{tech_name} 的基本技术描述"
+                return node, related_techs
+
+            # 迭代研究过程
+            for i in range(self.research_iterations):
+                try:
+                    # 更新搜索结果
+                    state.web_research_results.append(search_results)
+                    state.sources_gathered.append("\n".join(
+                        f"* {source['title']} : {source['url']}"
+                        for source in search_results.get('results', [])
+                    ))
+
+                    # 总结当前内容
+                    summary = self.summarize_content(state)
+                    state.historical_summaries.append(summary)
+                    state.running_summary = summary
+
+                    # 如果不是最后一次迭代，进行反思并生成新的查询
+                    if i < self.research_iterations - 1:
+                        reflection = self.reflect_and_generate_query(state)
+                        state.historical_reflections.append(reflection)
+                        search_results = self.search_tech_info(
+                            tech_name,
+                            query=reflection.get('follow_up_query'),
+                            depth=current_depth
+                        )
+                except Exception as e:
+                    self.logger.error(f"研究迭代 {i} 失败: {str(e)}")
+                    break
+
+            # 提取相关技术
+            if state.running_summary:
+                node.description = state.running_summary
+                node.historical_summaries = state.historical_summaries
+                node.historical_reflections = state.historical_reflections
+                related_techs = self.extract_related_technologies(state.running_summary, tech_name)
+
+        except Exception as e:
+            self.logger.error(f"分析技术 {tech_name} 时发生错误: {str(e)}")
+            if "429" in str(e) or "Resource has been exhausted" in str(e):
+                self.logger.info("API配额用尽，保存已完成的分析结果")
+                if not node.description and state.historical_summaries:
+                    node.description = state.historical_summaries[-1]
+
+        return node, related_techs
 
         # 分阶段搜索策略
         for i in range(self.research_iterations):
@@ -344,7 +399,16 @@ Ensure the response is valid JSON.""")
     def extract_related_technologies(self, summary: str, tech_name: str) -> List[Dict]:
         """提取相关技术并生成关联强度"""
         prompt = f"""
-        Based on the summary of {tech_name}, extract EXACTLY 3 specific technologies and their relevance scores (0.0-1.0).
+        Based on the summary below about {tech_name}, extract 3-5 **specific technical implementations** (not broad fields) that are DIRECTLY integrated or used with {tech_name} and give them relevance scores (0.0-1.0).
+
+        **Requirements**:  
+1. Extract **specific technical frameworks/tools** (e.g., "LLM" instead of "machine learning", "RAG" instead of "NLP").  
+2. Exclude generic domains (e.g., avoid "deep learning", use "Transformer architecture").  
+3. Prioritize technologies mentioned in the summary or critically relevant to {tech_name}'s implementation.  
+
+**Example for "AI Agent"**:  
+["Large Language Models (LLM)", "Retrieval-Augmented Generation (RAG)", "LangChain", "Reinforcement Learning from Human Feedback (RLHF)", "AutoGPT"]  
+
         Relevance score criteria:
         - 1.0: Directly integrated (e.g., LLM for AI Agent)
         - 0.6-0.9: Indirect but critical (e.g., PyTorch for deep learning)
@@ -440,83 +504,108 @@ Ensure the response is valid JSON.""")
     def visualize_landscape(self, root_node: TechNode):
         """生成交互式HTML网络图"""
         self.logger.info("开始生成交互式可视化...")
-        net = Network(height="800px", directed=True)
-
-        # 递归添加节点和边
-        def add_nodes_edges(node: TechNode, parent_id: str = None):
-            # 节点颜色和大小基于关联强度
-            color = self._get_color_by_strength(node.relation_strength)
-            size = 20 + 15 * node.relation_strength  # 强度越高，节点越大
-
-            # 创建悬停提示信息
-            hover_info = f"""
-            <div style='background-color: #f8f9fa; padding: 10px; border-radius: 5px; max-width: 400px;'>
-                <h3 style='color: #2c3e50; margin: 0 0 10px 0;'>{node.name}</h3>
-                <p style='color: #34495e; margin: 5px 0;'><b>关联强度:</b> {node.relation_strength:.2f}</p>
-                <p style='color: #34495e; margin: 5px 0; line-height: 1.4;'>{node.description}</p>
-            </div>
-            """
-
-            # 添加节点
-            net.add_node(
-                node.name,
-                label=node.name,
-                color=color,
-                size=size,
-                title=hover_info,
-                borderWidth=2,
-                font={'size': 14, 'face': 'Helvetica'},
-                shape='dot'
+        net = None
+        html_path = None
+        
+        try:
+            # 初始化网络图
+            net = Network(
+                height="800px",
+                width="100%",
+                directed=True,
+                bgcolor="#ffffff",
+                font_color=True
             )
 
-            # 添加边并设置权重
-            if parent_id:
-                net.add_edge(parent_id, node.name, value=node.relation_strength)
+            # 递归添加节点和边
+            def add_nodes_edges(node: TechNode, parent_id: str = None):
+                # 节点颜色和大小基于关联强度
+                color = self._get_color_by_strength(node.relation_strength)
+                size = 20 + 15 * node.relation_strength
 
-            for child in node.related_techs:
-                add_nodes_edges(child, node.name)
+                # 截短描述文本，避免过长
+                description = node.description if node.description else "暂无描述"
+                if len(description) > 500:
+                    description = description[:497] + "..."
 
-        # 添加所有节点和边
-        add_nodes_edges(root_node)
+                # 创建悬停提示
+                tooltip = (
+                    f"<div class='tooltip'>"
+                    f"<h3 style='margin:0 0 10px 0;color:#2c3e50'>{node.name}</h3>"
+                    f"<p style='margin:5px 0;color:#34495e'><b>关联强度:</b> {node.relation_strength:.2f}</p>"
+                    f"<p style='margin:5px 0;color:#34495e;line-height:1.4'>{description}</p>"
+                    f"</div>"
+                )
 
-        # 设置布局和样式选项
-        try:
+                # 添加节点
+                net.add_node(
+                    node.name,
+                    label=node.name,
+                    color=color,
+                    size=size,
+                    title=tooltip,
+                    borderWidth=2,
+                    font={'size': 14, 'face': 'Helvetica'},
+                    shape='dot'
+                )
+
+                # 添加边
+                if parent_id:
+                    net.add_edge(
+                        parent_id,
+                        node.name,
+                        width=3,  # 增加边的宽度
+                        color={'color': '#95a5a6', 'opacity': 0.8},
+                        smooth={'type': 'continuous', 'roundness': 0.5}
+                    )
+
+                # 递归处理子节点
+                for child in node.related_techs:
+                    add_nodes_edges(child, node.name)
+
+            # 添加所有节点和边
+            add_nodes_edges(root_node)
+
+            # 配置网络图选项
             options = {
                 "physics": {
                     "forceAtlas2Based": {
-                        "gravitationalConstant": -1000,
+                        "gravitationalConstant": -2000,
                         "centralGravity": 0.01,
                         "springLength": 200,
-                        "springConstant": 0.08,
+                        "springConstant": 0.05,
                         "damping": 0.4,
                         "avoidOverlap": 0.5
                     },
                     "minVelocity": 0.75,
-                    "solver": "forceAtlas2Based"
+                    "solver": "forceAtlas2Based",
+                    "stabilization": {
+                        "enabled": True,
+                        "iterations": 1000,
+                        "updateInterval": 25
+                    }
                 },
                 "nodes": {
                     "shape": "dot",
-                    "scaling": {
-                        "min": 20,
-                        "max": 35
-                    },
-                    "font": {
-                        "size": 14,
-                        "face": "Helvetica"
-                    }
+                    "scaling": {"min": 20, "max": 35},
+                    "font": {"size": 14, "face": "Helvetica"},
+                    "borderWidth": 2,
+                    "shadow": True
                 },
                 "edges": {
-                    "color": {"color": "#95a5a6"},
-                    "smooth": {"type": "continuous"},
-                    "width": 2
+                    "color": {"inherit": "false", "color": "#95a5a6"},
+                    "smooth": {"type": "continuous", "roundness": 0.5},
+                    "width": 3,
+                    "shadow": True
                 },
                 "interaction": {
                     "hover": True,
                     "hideEdgesOnDrag": True,
-                    "tooltipDelay": 200
+                    "tooltipDelay": 200,
+                    "zoomView": True
                 }
             }
-            
+
             # 保存HTML文件
             base_name = root_node.name.lower().replace(' ', '_')
             html_path = f"{base_name}_landscape.html"
@@ -524,12 +613,23 @@ Ensure the response is valid JSON.""")
             net.set_options(json.dumps(options))
             net.write_html(html_path)
             self.logger.info(f"已生成交互式可视化文件: {html_path}")
-            
-            # 同时生成静态PNG图像作为备份
-            self._generate_static_image(root_node)
-            
+
+            # 生成静态PNG备份
+            try:
+                self._generate_static_image(root_node)
+            except Exception as png_error:
+                self.logger.error(f"生成静态PNG备份失败: {str(png_error)}")
+
         except Exception as e:
-            self.logger.error(f"生成可视化文件失败: {e}")
+            self.logger.error(f"生成可视化文件失败: {str(e)}")
+            if "429" in str(e) or "Resource has been exhausted" in str(e):
+                if net and html_path:
+                    try:
+                        # 保存已完成的部分
+                        net.write_html(html_path)
+                        self.logger.info("已保存部分完成的可视化文件")
+                    except Exception as save_error:
+                        self.logger.error(f"保存部分完成的文件失败: {str(save_error)}")
             raise
 
     def generate_landscape(self, root_tech: str, output_file: str) -> TechNode:
