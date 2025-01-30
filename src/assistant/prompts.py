@@ -67,6 +67,7 @@ Your tasks:
 1. Identify knowledge gaps or areas that need deeper exploration
 2. Generate a follow-up question that would help expand your understanding
 3. Focus on technical details, implementation specifics, or emerging trends that weren't fully covered
+4. Focus on the technical implementation details (such as architectural design and algorithm optimization) rather than the general applicability of tools.
 
 Ensure the follow-up question is self-contained and includes necessary context for web search.
 
