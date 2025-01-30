@@ -169,9 +169,9 @@ class TechLandscape:
             
         return response
 
-    def analyze_tech(self, tech_name: str) -> TechNode:
+    def analyze_tech(self, tech_name: str, depth: int = 0) -> TechNode:
         """分析单个技术节点，使用迭代总结和反思的方式"""
-        print(f"\n开始分析技术: {tech_name}")
+        self.logger.info(f"\n开始分析技术: {tech_name} (深度: {depth})")
         node = TechNode(name=tech_name)
         
         # 创建初始状态
@@ -187,9 +187,9 @@ class TechLandscape:
         )
 
         # 初始查询
-        print(f"执行初始搜索...")
-        search_results = self.search_tech_info(tech_name)
-        print(f"获取到 {len(search_results.get('results', []))} 条搜索结果")
+        self.logger.info(f"执行初始搜索...")
+        search_results = self.search_tech_info(tech_name, depth=depth)
+        self.logger.info(f"获取到 {len(search_results.get('results', []))} 条搜索结果")
         
         # 迭代研究过程
         for i in range(self.research_iterations):
@@ -209,7 +209,7 @@ class TechLandscape:
             if i < self.research_iterations - 1:
                 reflection = self.reflect_and_generate_query(state)
                 state.historical_reflections.append(reflection)
-                search_results = self.search_tech_info(tech_name, reflection['follow_up_query'])
+                search_results = self.search_tech_info(tech_name, query=reflection['follow_up_query'], depth=depth)
 
         # 提取相关技术
         related_techs = self.extract_related_technologies(state.running_summary, tech_name)
