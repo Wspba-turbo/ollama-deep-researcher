@@ -240,6 +240,16 @@ class TechLandscape:
 Please read the existing summary carefully first，then extend it with the new search results base on the following instructions:
 1. Preserve Core Information: Keep all critical insights and key details from the original summary intact, ensuring no loss of essential knowledge.
 2. Integrate New Insights Without Redundancy: Introduce new information only if it adds unique value—strictly avoid rephrasing, reintroducing, or restating previously covered points.
+3. **Actively Optimize Existing Content**:  
+   - Reorganize paragraphs to merge overlapping content into logical sections.  
+   - Replace vague statements with precise new insights.  
+   - Remove redundant general descriptions; retain specific examples and data.  
+   - Integrate new information into the most contextually relevant sections (do NOT simply append to the end).  
+
+**Example Optimization**:  
+❌ Original: "AI agents use machine learning techniques..."  
+✅ Improved: "Modern AI agents leverage transformer-based architectures (e.g., GPT-4) to enhance reasoning capabilities, as demonstrated in recent research on..."  
+
 '''
         else:
             print("生成初始总结...")

@@ -23,6 +23,15 @@ When EXTENDING an existing summary:
 5. Establish Logical and Seamless Transitions: Ensure smooth integration of new content by naturally linking it to existing material without disrupting readability.
 6. Contextualize Technical Additions: Whenever introducing new technical concepts, anchor them to previously discussed examples, use cases, or foundational principles for continuity.
 7. Reinforce Conceptual Connectivity: Explicitly link new ideas and terminology to prior content, avoiding fragmentation and ensuring a progressive expansion of knowledge.
+8. **Actively Optimize Existing Content**:  
+   - Reorganize paragraphs to merge overlapping content into logical sections.  
+   - Replace vague statements with precise new insights.  
+   - Remove redundant general descriptions; retain specific examples and data.  
+   - Integrate new information into the most contextually relevant sections (do NOT simply append to the end).  
+
+**Example Optimization**:  
+❌ Original: "AI agents use machine learning techniques..."  
+✅ Improved: "Modern AI agents leverage transformer-based architectures (e.g., GPT-4) to enhance reasoning capabilities, as demonstrated in recent research on..."  
 
 When creating a NEW summary:
 1. Highlight the Most Relevant Information: Focus on key points from each source.
