@@ -3,6 +3,7 @@ from typing import List, Dict, Optional
 import json
 import re
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import networkx as nx
 from .utils import tavily_search
 from .configuration import Configuration
@@ -24,23 +25,56 @@ class TechNode:
 
 class TechLandscape:
     """技术全景图生成器"""
-    
     def __init__(self, config: Configuration, max_depth: int = 2, max_related_techs: int = 5, research_iterations: int = 2):
         self.config = config
         self.max_depth = max_depth
         self.max_related_techs = max_related_techs
         self.research_iterations = research_iterations
         self.llm = self._get_llm()
+        self.seen_techs = set()  # 添加循环检测
+        
+        # 配置日志记录
+        import logging
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s'
+        )
+        self.logger = logging.getLogger(__name__)
+        
+        # 设置缓存
+        from functools import lru_cache
+        self.search_tech_info = lru_cache(maxsize=100)(self.search_tech_info)
+        self.llm = self._get_llm()
+        
+        # 设置中文字体
+        try:
+            print("配置中文字体支持...")
+            plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'Arial Unicode MS', 'Heiti TC']
+            plt.rcParams['axes.unicode_minus'] = False
+        except Exception as e:
+            print(f"字体配置失败: {e}")
 
     def _get_llm(self):
         """获取配置的 LLM"""
         from .graph import get_llm
         return get_llm(self.config, temperature=0)
 
-    def search_tech_info(self, tech_name: str, query: str = None) -> Dict:
-        """搜索技术相关信息"""
+    def search_tech_info(self, tech_name: str, query: str = None, depth: int = 0) -> Dict:
+        """搜索技术相关信息，根据深度动态调整搜索结果数量"""
         if query is None:
-            query = f"{tech_name} technology overview latest developments applications"
+            query = f"{tech_name} technology core concepts and applications"
+        
+        # 动态调整搜索结果数量：层级越深，结果越少
+        max_results = max(3 - depth, 1)
+        self.logger.info(f"搜索技术 {tech_name} (深度: {depth}, 结果数: {max_results})")
+        
+        try:
+            results = tavily_search(query, include_raw_content=True, max_results=max_results)
+            self.logger.info(f"成功获取 {len(results.get('results', []))} 条搜索结果")
+            return results
+        except Exception as e:
+            self.logger.error(f"搜索时出错: {e}")
+            return {"results": []}
         results = tavily_search(query, include_raw_content=True, max_results=3)
         return results
 
@@ -79,15 +113,20 @@ class TechLandscape:
                 # 如果没有找到引号包围的项，尝试其他分割方法
                 items = [x.strip() for x in content.split() if x.strip()]
             
-            # 确保每个项都正确使用引号包围并用逗号分隔
+            # 确保每个项都正确格式化
             fixed_items = [f'"{item}"' for item in items if item]
             fixed_json = '[' + ','.join(fixed_items) + ']'
             
-            # 验证修复后的 JSON
-            print(f"修复后的 JSON: {fixed_json}")
-            parsed = json.loads(fixed_json)  # 验证是否为有效的 JSON
-            print(f"JSON 解析结果: {parsed}")
-            return fixed_json
+            try:
+                # 验证修复后的 JSON
+                print(f"修复后的 JSON: {fixed_json}")
+                parsed = json.loads(fixed_json)
+                print(f"解析出 {len(parsed)} 个技术")
+                return fixed_json
+            except json.JSONDecodeError as je:
+                print(f"JSON 验证失败: {je}")
+                # 使用更安全的格式
+                return '["' + '","'.join(items) + '"]'
         except json.JSONDecodeError as e:
             print(f"JSON 修复后仍然无效: {e}")
             print("尝试使用备用方法修复...")
@@ -192,22 +231,27 @@ class TechLandscape:
         if state.running_summary:
             print("扩展现有总结...")
             human_message_content = (
-                f"请基于以下信息扩展现有总结:\n\n"
-                f"现有总结: {state.running_summary}\n\n"
-                f"新的研究结果: {most_recent_web_research}\n\n"
-                f"研究主题: {state.research_topic}"
+                f"Please base your summary on the following information and expand the existing summary:\n\n"
+                f"Existing Summary: {state.running_summary}\n\n"
+                f"New Research Results: {most_recent_web_research}\n\n"
+                f"Research Topic: {state.research_topic}"
             )
+            human_message_content += '''
+Please read the existing summary carefully first，then extend it with the new search results base on the following instructions:
+1. Preserve Core Information: Keep all critical insights and key details from the original summary intact, ensuring no loss of essential knowledge.
+2. Integrate New Insights Without Redundancy: Introduce new information only if it adds unique value—strictly avoid rephrasing, reintroducing, or restating previously covered points.
+'''
         else:
             print("生成初始总结...")
             human_message_content = (
-                f"请总结以下关于{state.research_topic}的研究结果:\n\n{most_recent_web_research}"
+                f"Please summarize the following research results about {state.research_topic}:\n\n{most_recent_web_research}"
             )
 
         print("调用 LLM 生成总结...")
         result = self.llm.invoke([
             SystemMessage(content=summarizer_instructions.format(
                 language=configurable.output_language,
-                max_length=configurable.summary_max_length,
+                # max_length=configurable.summary_max_length,
                 min_length=configurable.summary_min_length
             )),
             HumanMessage(content=human_message_content)
@@ -223,15 +267,15 @@ class TechLandscape:
                 research_topic=state.research_topic,
                 language=self.config.output_language
             )),
-            HumanMessage(content=f"""基于这个总结，请分析并找出知识空白，生成新的查询：
+            HumanMessage(content=f"""Based on this summary, please analyze and identify knowledge gaps, then generate a follow-up query:
 
 {state.running_summary}
 
-请用JSON格式返回，包含两个字段：
-1. knowledge_gap: 发现的知识空白
-2. follow_up_query: 下一步的搜索查询
+Please respond in JSON format with two fields:
+1. knowledge_gap: The identified knowledge gap
+2. follow_up_query: The next search query
 
-确保返回的是有效的JSON对象。""")
+Ensure the response is valid JSON.""")
         ])
 
         try:
@@ -243,27 +287,27 @@ class TechLandscape:
             print(f"Original response: {result.content}")
             print(f"Cleaned response: {content}")
             return {
-                "knowledge_gap": "解析反思结果时出错",
-                "follow_up_query": f"{state.research_topic} 最新发展和应用"
+                "knowledge_gap": "Error parsing reflection results",
+                "follow_up_query": f"{state.research_topic} latest developments and applications"
             }
 
     def extract_related_technologies(self, summary: str, tech_name: str) -> List[str]:
         """从总结中提取相关技术"""
         print(f"\n开始提取与 {tech_name} 相关的技术...")
         
-        prompt = f"""基于以下关于{tech_name}的技术总结，提取3-5个最相关的具体技术名称。
+        prompt = f"""Based on the following summary about {tech_name}, extract 3-5 of the **most directly related** specific technologies. Focus on technologies with the **closest relationship** to the main topic.
 
 {summary}
 
-严格按照以下格式返回（只需要返回数组，不要添加任何其他内容）：
-["技术1","技术2","技术3"]
+Please respond strictly in the following format (only the array, no additional content):
+["Technology 1","Technology 2","Technology 3"]
 
-要求：
-1. 提取具体的技术名称，例如"深度学习"而不是"AI技术"
-2. 确保与{tech_name}直接相关
-3. 使用引号包裹每个技术名称
-4. 使用逗号分隔
-5. 不要添加额外空格或换行"""
+Requirements:
+1. Extract specific technology names, e.g., "machine learning" instead of "AI technology".
+2. Ensure they are **most directly and closely related** to {tech_name}.
+3. Enclose each technology name in quotes.
+4. Separate technologies with commas.
+5. Do not add extra spaces or newlines."""
 
         print("调用 LLM 提取相关技术...")
         result = self.llm.invoke([
@@ -286,14 +330,18 @@ class TechLandscape:
             return []
 
     def build_tech_tree(self, root_tech: str, current_depth: int = 0) -> TechNode:
-        """递归构建技术树"""
-        if current_depth >= self.max_depth:
+        """递归构建技术树（添加循环检测）"""
+        # 检查深度限制和循环
+        if current_depth >= self.max_depth or root_tech in self.seen_techs:
+            self.logger.info(f"{'  ' * current_depth}停止分析 {root_tech}: " +
+                         ("达到最大深度" if current_depth >= self.max_depth else "检测到循环"))
             return TechNode(name=root_tech, depth=current_depth)
 
-        print(f"\n{'  ' * current_depth}分析技术: {root_tech}")
+        self.seen_techs.add(root_tech)  # 标记为已处理
+        self.logger.info(f"\n{'  ' * current_depth}分析技术: {root_tech}")
         
         # 分析当前技术
-        node, related_techs = self.analyze_tech(root_tech)
+        node, related_techs = self.analyze_tech(root_tech, current_depth)
         node.depth = current_depth
 
         # 递归处理相关技术
@@ -327,37 +375,62 @@ class TechLandscape:
             json.dump(landscape_dict, f, indent=2, ensure_ascii=False)
 
     def visualize_landscape(self, root_node: TechNode):
-        """可视化技术全景图"""
-        G = nx.Graph()
+        """生成交互式HTML网络图"""
+        self.logger.info("开始生成交互式可视化...")
+        from pyvis.network import Network
 
-        def add_nodes_edges(node: TechNode, parent_name: str = None):
-            G.add_node(node.name)
-            if parent_name:
-                G.add_edge(parent_name, node.name)
+        # 创建网络图对象
+        net = Network(height="800px", width="100%", notebook=False, directed=True)
+        net.toggle_physics(True)
+        net.show_buttons(filter_=['physics'])
+        
+        # 递归添加节点和边
+        def add_nodes_edges(node: TechNode, parent_id: str = None):
+            node_id = node.name
+            # 根据层级设置节点颜色和大小
+            color = {0: "#FF6B6B", 1: "#4ECDC4", 2: "#45B7D1"}.get(node.depth, "#96CEB4")
+            size = 30 - node.depth * 5
+            
+            # 准备节点提示信息
+            desc = node.description[:200] + "..." if len(node.description) > 200 else node.description
+            tooltip = f"<b>{node.name}</b><br>{desc}"
+            
+            net.add_node(node_id, label=node.name, color=color, size=size,
+                        title=tooltip)
+            
+            if parent_id:
+                net.add_edge(parent_id, node_id)
+            
             for child in node.related_techs:
-                add_nodes_edges(child, node.name)
-
+                add_nodes_edges(child, node_id)
+        
+        # 添加所有节点和边
         add_nodes_edges(root_node)
+        self.logger.info("完成节点和边的添加")
 
-        # 设置绘图参数
-        plt.figure(figsize=(20, 10))
-        pos = nx.spring_layout(G, k=1, iterations=50)
+        # 设置物理布局参数
+        net.set_options("""
+        {
+          "physics": {
+            "forceAtlas2Based": {
+              "gravitationalConstant": -100,
+              "springLength": 200,
+              "avoidOverlap": 0.5
+            },
+            "minVelocity": 0.75,
+            "solver": "forceAtlas2Based"
+          }
+        }
+        """)
         
-        # 绘制节点
-        nx.draw_networkx_nodes(G, pos, node_color='lightblue', 
-                             node_size=2000, alpha=0.7)
-        nx.draw_networkx_edges(G, pos, alpha=0.5)
-        
-        # 添加标签
-        nx.draw_networkx_labels(G, pos, font_size=8)
-        
-        plt.title(f"Technology Landscape: {root_node.name}")
-        plt.axis('off')
-        
-        # 保存图像
+        # 生成HTML文件
         base_name = root_node.name.lower().replace(' ', '_')
-        plt.savefig(f"{base_name}_landscape.png", bbox_inches='tight')
-        plt.close()
+        html_path = f"{base_name}_landscape.html"
+        net.show(html_path, local=True)
+        self.logger.info(f"已生成交互式可视化文件: {html_path}")
+
+        # 同时生成静态PNG图像作为备份
+        self._generate_static_image(root_node)
 
     def generate_landscape(self, root_tech: str, output_file: str) -> TechNode:
         """生成技术全景图"""
@@ -367,7 +440,71 @@ class TechLandscape:
         # 保存到文件
         self.save_landscape(root_node, output_file)
         
-        # 生成可视化
+        # 生成可视化（同时生成交互式HTML和静态PNG）
         self.visualize_landscape(root_node)
         
+        self.logger.info(f"技术全景图生成完成 - {root_tech}")
         return root_node
+
+    def _generate_static_image(self, root_node: TechNode):
+        """生成静态PNG备份图像"""
+        self.logger.info("生成静态备份图像...")
+        
+        # 创建图形对象
+        G = nx.Graph()
+        
+        def add_nodes_edges(node: TechNode, parent_name: str = None):
+            G.add_node(node.name)
+            if parent_name:
+                G.add_edge(parent_name, node.name)
+            for child in node.related_techs:
+                add_nodes_edges(child, node.name)
+
+        add_nodes_edges(root_node)
+        self.logger.info(f"添加了 {len(G.nodes)} 个节点和 {len(G.edges)} 条边")
+
+        # 设置绘图参数
+        plt.figure(figsize=(20, 10))
+        pos = nx.spring_layout(G, k=1.5, iterations=50)
+        
+        # 根据深度设置节点颜色
+        node_colors = []
+        node_sizes = []
+        for node in G.nodes():
+            depth = 0
+            # 查找节点深度
+            def find_node_depth(search_node: TechNode, target_name: str, current_depth: int = 0) -> int:
+                if search_node.name == target_name:
+                    return current_depth
+                for child in search_node.related_techs:
+                    result = find_node_depth(child, target_name, current_depth + 1)
+                    if result is not None:
+                        return result
+                return None
+            
+            depth = find_node_depth(root_node, node) or 0
+            color = {0: "#FF6B6B", 1: "#4ECDC4", 2: "#45B7D1"}.get(depth, "#96CEB4")
+            size = 3000 - depth * 500
+            node_colors.append(color)
+            node_sizes.append(size)
+        
+        # 绘制节点和边
+        nx.draw_networkx_nodes(G, pos, node_color=node_colors,
+                             node_size=node_sizes, alpha=0.7)
+        nx.draw_networkx_edges(G, pos, alpha=0.5, width=2)
+        
+        # 添加标签
+        font_size = 10
+        labels = {node: node for node in G.nodes()}
+        nx.draw_networkx_labels(G, pos, labels, font_size=font_size, font_weight='bold')
+        
+        # 设置标题
+        title = "技术全景图: " if self.config.output_language.lower() == 'chinese' else "Technology Landscape: "
+        plt.title(title + root_node.name, fontsize=14, fontweight='bold')
+        plt.axis('off')
+        
+        # 保存图像
+        base_name = root_node.name.lower().replace(' ', '_')
+        plt.savefig(f"{base_name}_landscape.png", bbox_inches='tight', dpi=300)
+        plt.close()
+        self.logger.info("静态图像生成完成")
