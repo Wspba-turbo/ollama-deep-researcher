@@ -337,7 +337,8 @@ class TechLandscape:
 Please read the existing summary carefully first，then extend it with the new search results base on the following instructions:
 1. Preserve Core Information: Keep all critical insights and key details from the original summary intact, ensuring no loss of essential knowledge.
 2. Integrate New Insights Without Redundancy: Introduce new information only if it adds unique value—strictly avoid rephrasing, reintroducing, or restating previously covered points.
-3. **Actively Optimize Existing Content**:
+3. When expanding the summary, it is necessary to delete repetitive generic descriptions and insert new information into the most relevant section (for example, integrating framework implementation details into the “Software Architectures” section).
+4. **Actively Optimize Existing Content**:
    - Reorganize paragraphs to merge overlapping content into logical sections.
    - Replace vague statements with precise new insights.
    - Remove redundant general descriptions; retain specific examples and data.
@@ -372,7 +373,9 @@ Please read the existing summary carefully first，then extend it with the new s
                 research_topic=state.research_topic,
                 language=self.config.output_language
             )),
-            HumanMessage(content=f"""Based on this summary, please analyze and identify knowledge gaps, then generate a follow-up query:
+            HumanMessage(content=f"""Based on this summary, please analyze and identify knowledge gaps, 
+                         Focus on the technical implementation details (such as architectural design and algorithm optimization) rather than the general applicability of tools, 
+                         then generate a follow-up query:
 
 {state.running_summary}
 
@@ -414,7 +417,7 @@ Ensure the response is valid JSON.""")
            ✅ "Transformer architecture", "Attention mechanism"
            ❌ "neural networks", "NLP", "computer vision"
 
-        For {tech_name}, identify exactly 3 of its most critical technical components, ranked by integration level:
+        For {tech_name}, identify 4 to 6 of its most critical technical components, ranked by integration level:
         - Directly integrated (score 0.9-1.0): Core frameworks/models (e.g., LLM for AI Agent)
         - Closely coupled (score 0.8-0.9): Essential components (e.g., RAG for AI Agent)
         - Supporting tools (score 0.7-0.8): Key implementation tools (e.g., LangChain)
@@ -444,11 +447,42 @@ Ensure the response is valid JSON.""")
             
             # 技术黑名单 - 过于宽泛的术语
             blacklist = {
-                "machine learning", "deep learning", "artificial intelligence", "AI",
-                "NLP", "neural networks", "computer vision", "cloud computing",
-                "algorithms", "optimization", "programming", "software",
-                "data science", "automation", "computing"
-            }
+    # 原列表
+    "machine learning", "deep learning", "artificial intelligence", "AI",
+    "NLP", "neural networks", "computer vision", "cloud computing",
+    "algorithms", "optimization", "programming", "software",
+    "data science", "automation", "computing", "PyTorch", "TensorFlow",
+    "Fine-tuning", "training", "modeling", "inference", "data",
+    
+    
+    
+    # 新增补充
+    # ---------------
+    # 通用技术领域
+    "computer science", "information technology", "big data", 
+    "IoT", "edge computing", "cybersecurity", "robotics",
+    "data analysis", "software development", "web development",
+    
+    # 方法论与流程
+    "agile development", "DevOps", "CI/CD", "scrum", 
+    "version control", "software engineering",
+    
+    # 基础学科概念
+    "mathematics", "statistics", "linear algebra", 
+    "probability", "calculus", "discrete mathematics",
+    
+    # 通用工具/平台
+    "AWS", "Google Cloud", "Azure", "Docker", "Kubernetes",
+    "Git", "Jenkins", "Jira", "Slack",
+    
+    # 非技术性术语
+    "project management", "user experience", "UI/UX",
+    "business intelligence", "digital transformation",
+    
+    # 其他宽泛术语
+    "framework", "library", "API", "SDK", "microservices",
+    "database", "server", "client", "backend", "frontend"
+}
 
             techs = json.loads(content)
             if not isinstance(techs, list):
@@ -456,19 +490,27 @@ Ensure the response is valid JSON.""")
             
             # 过滤和验证技术
             filtered_techs = []
+            print("找到相关技术：",techs)
             for tech in techs:
+                #import pdb
+                #pdb.set_trace()
                 if not (isinstance(tech, dict) and "name" in tech and "score" in tech):
                     continue
                     
                 name = tech["name"].strip()
+                if name == tech_name:
+                    print(f"技术 {name} 与 {tech_name} 相同，已忽略")
+                    continue
                 score = tech["score"]
                 
                 # 验证分数
                 if not isinstance(score, (int, float)) or score < 0.7:
+                    print(f"技术 {name} 的分数 {score} 不在有效范围内，已忽略")
                     continue
                 
                 # 检查是否在黑名单中（忽略大小写）
                 if any(black_term.lower() in name.lower() for black_term in blacklist):
+                    print(f"技术 {name} 在黑名单中，已忽略")
                     continue
                 
                 # 验证名称长度和格式
@@ -484,7 +526,7 @@ Ensure the response is valid JSON.""")
             if not filtered_techs:
                 self.logger.warning(f"没有找到有效的相关技术，使用默认技术")
                 filtered_techs = [{
-                    "name": "Related Technology",
+                    "name": tech_name+"-related",
                     "score": 0.7
                 }]
             
