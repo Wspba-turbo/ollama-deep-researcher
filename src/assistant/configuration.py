@@ -17,7 +17,7 @@ class Configuration:
     summary_min_length: int = 5000  # 摘要最小长度（字符数）
     openai_api_key: str = ""  # OpenAI API密钥
     anthropic_api_key: str = ""  # Anthropic API密钥
-    google_api_key: str = "AIzaSyD-JGT8Cb2lIvznTjzP1Z77pnl21S4SyOU"  # Google API密钥
+    google_api_key: str = os.getenv("GOOGLE_API_KEY", "")  # Google API密钥
     file_path: str = "research_process.json"  # 研究过程文件路径
     @classmethod
     def from_runnable_config(

@@ -1,4 +1,5 @@
 import json
+import os
 from typing_extensions import Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -40,7 +41,7 @@ def get_llm(config: Configuration, temperature: float = 0, format: str = None):
         return ChatGoogleGenerativeAI(
             model=config.llm_model or "gemini-pro",
             temperature=temperature,
-            google_api_key=config.google_api_key,
+            google_api_key=os.getenv("GOOGLE_API_KEY", ""),
             convert_system_message_to_human=True,  # Gemini 不支持系统消息，需要转换为人类消息
             model_kwargs={"response_format": {"type": "json"}} if format == "json" else {}
         )
